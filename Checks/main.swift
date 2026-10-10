@@ -1,0 +1,40 @@
+import Foundation
+
+func check(_ condition: @autoclosure () -> Bool, _ message: String) {
+    guard condition() else { fatalError(message) }
+}
+
+let now = Date(timeIntervalSince1970: 1_800_000_000)
+var data = FocusData()
+check(!data.addPriority("   ", on: now), "Blank priorities must be rejected")
+check(data.addPriority(" Read ", on: now), "First priority should be accepted")
+check(data.priorities[0].title == "Read", "Priority whitespace should be trimmed")
+check(data.addPriority("Write", on: now), "Second priority")
+check(data.addPriority("Walk", on: now), "Third priority")
+check(!data.addPriority("Extra", on: now), "Daily limit must be enforced")
+let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: now)!
+check(data.addPriority("Tomorrow", on: tomorrow), "New day gets its own priorities")
+check(data.priorities(on: now).count == 3, "Days must stay separate")
+data.sessions.append(FocusSession(completedAt: now, minutes: 25))
+check(data.focusedMinutes(on: now) == 25, "Minutes should aggregate")
+check(data.focusedMinutes(on: tomorrow) == 0, "Minutes should stay on their day")
+let encoded = try JSONEncoder().encode(data)
+let decoded = try JSONDecoder().decode(FocusData.self, from: encoded)
+check(decoded.priorities == data.priorities, "Priorities must survive persistence")
+check(decoded.sessions.count == 1, "Sessions must survive persistence")
+var clock = FocusClock()
+clock.start(at: now)
+check(!clock.refresh(at: now.addingTimeInterval(60)), "Early tick must not finish")
+check(clock.remaining == 1440, "Elapsed time must be reflected")
+check(!clock.pause(at: now.addingTimeInterval(90)), "Pause must not complete an unfinished session")
+check(clock.remaining == 1410 && !clock.isRunning, "Pause retains remainder")
+clock.start(at: now.addingTimeInterval(120))
+check(clock.refresh(at: now.addingTimeInterval(1600)), "Background elapsed time must complete")
+check(clock.remaining == 0, "Completion clamps to zero")
+check(!clock.refresh(at: now.addingTimeInterval(1700)), "Completion must happen exactly once")
+clock.reset(minutes: 15)
+check(clock.remaining == 900 && clock.duration == 900, "Duration reset")
+clock.start(at: now)
+let savedClock = try JSONDecoder().decode(FocusClock.self, from: JSONEncoder().encode(clock))
+check(savedClock.deadline == clock.deadline, "Running deadline survives relaunch")
+print("Passed: priority limits, day boundaries, persistence, timer pause/resume, background completion, and reset.")
